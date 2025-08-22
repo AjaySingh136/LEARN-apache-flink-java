@@ -1,47 +1,57 @@
-# Apache Flink Learning Environment (Java + Docker + VS Code)
+# Apache Flink Learning Lab (Java + Docker + VS Code): What, Why, and How
 
-This repository is a hands‑on LEARNING LAB for Apache Flink using Java.  
-You will run a **local Flink cluster** (JobManager + TaskManager) inside Docker containers, while writing **multiple independent Java Flink projects** on your Mac in VS Code.  
-Each project will build a **shaded (fat) JAR** that you drop into a shared `jars/` folder. The Dockerized Flink cluster automatically sees that folder (it is "mounted" inside the containers). You then submit jobs via:
-- Flink Web UI (easiest)
-- Flink CLI inside the JobManager container
-- REST API (advanced)
+This repository is a hands‑on LEARNING LAB for Apache Flink using Java.
 
-You can keep adding more projects side‑by‑side (e.g. `flink-wordcount/`, `flink-kafka-demo/`, `flink-table-sql/`), all submitting to the SAME local cluster.  
-This setup mimics a **session cluster** useful for experimentation and learning.
+Context and goal:
+- You will run a local Apache Flink “session cluster” (JobManager + TaskManager) inside Docker containers.
+- You will write multiple independent Java Flink projects in VS Code on macOS.
+- Each project builds a shaded (fat) JAR and you place it in a shared `jars/` folder.
+- The Dockerized Flink cluster “sees” that folder, and you submit your jobs via the Web UI, CLI, or REST API.
+
+Why this setup:
+- It separates “runtime” (Flink in Docker) from “development” (your code on macOS).
+- It’s quick to iterate: edit → build → copy JAR → submit → see logs.
+- You can keep many small demo projects side‑by‑side (e.g., `flink-wordcount/`, `flink-kafka-demo/`, `flink-table-sql/`) and use the same local cluster to learn.
 
 ---
 
 ## Table of Contents
 
-1. Concept Overview
-2. High-Level Architecture
-3. Prerequisites & Installation
-4. Repository Layout
-5. Step-by-Step Setup
-6. Creating Your First Project (WordCount)
-7. Building the Shaded JAR
-8. Running / Submitting the Job (3 Methods)
-9. Development Loop (Modify → Rebuild → Resubmit)
-10. Common Errors & Fixes
-11. Explaining the Files & Code
-12. Adding More Projects
-13. Cleaning Up
-14. Next Learning Steps
+1. Concept Overview (What is Flink and this lab)
+2. High‑Level Architecture (Where things run)
+3. Prerequisites & Installation (What you need and why)
+4. Repository Layout (How files are organized)
+5. Step‑by‑Step Setup (With commands and simple explanations)
+6. Create Your First Project (WordCount) and Why each command/setting
+7. Build the Shaded JAR (What it does under the hood)
+8. Run / Submit the Job (3 Methods) and Why there are options
+9. View Output (Where results go)
+10. Development Loop (Edit → Build → Submit)
+11. Explaining the Files & Code (docker-compose.yml, pom.xml, WordCount.java)
+12. Common Errors & Fixes (What went wrong and why)
+13. Adding More Projects (Scale your learning lab)
+14. Cleaning Up (Stop and reset)
+15. Next Learning Steps (Where to go next)
+16. Quick Command Cheat Sheet
+17. FAQ
 
 ---
 
-## 1. Concept Overview
+## 1) Concept Overview
 
-- **Apache Flink**: A framework for building real-time (stream) and batch data processing jobs.
-- **JobManager**: Coordinates jobs (planning, scheduling).
-- **TaskManager**: Executes tasks (your operators/functions run here).
-- **Session Cluster**: A persistent cluster where you submit many different jobs.
-- **Shaded JAR**: A single JAR that bundles your code + dependencies (except those Flink already provides) so the cluster can run it.
+- Apache Flink: A framework for building real-time (stream) and batch data processing jobs.
+- JobManager: The “brain” that plans and coordinates your jobs.
+- TaskManager: The “workers” that execute your code.
+- Session Cluster: A long-running cluster that can accept many jobs over time (ideal for learning).
+- Shaded JAR (fat JAR): A single JAR that bundles your code and non-Flink dependencies so the cluster can run it without hunting for libraries.
+
+Why this matters:
+- Running Flink in Docker gives you a clean, reproducible runtime.
+- Building a shaded JAR ensures your job is portable and easy to submit to any Flink cluster.
 
 ---
 
-## 2. High-Level Architecture
+## 2) High‑Level Architecture
 
 ```
 Mac (Host)
@@ -57,26 +67,23 @@ Mac (Host)
    You copy built shaded JARs here
 ```
 
-Flow:
-1. You write code locally.
-2. Build with Maven → produces `target/<project>-assembly.jar`.
-3. Copy jar to `./jars/`.
-4. Submit job (Web UI / CLI / REST).
-5. View output in TaskManager logs.
+Why this layout:
+- The `jars/` folder acts like a “drop zone” the cluster can see.
+- You keep your source code on the host for fast editing; the cluster only needs the final JAR.
 
 ---
 
-## 3. Prerequisites & Installation
+## 3) Prerequisites & Installation (What and Why)
 
-| Tool | Why Needed | Install (macOS) |
-|------|------------|-----------------|
+| Tool | Why You Need It | Install (macOS) |
+|------|------------------|-----------------|
 | Homebrew (optional) | Easy package installs | https://brew.sh |
-| Java 17 JDK | Compile & run Java code | `brew install openjdk@17` or Temurin |
-| Maven | Build Java (create shaded JAR) | `brew install maven` |
+| Java 17 JDK | Compile and run Java code | `brew install openjdk@17` (Temurin also ok) |
+| Maven | Build projects and create shaded JARs | `brew install maven` |
 | Docker Desktop | Run Flink containers | https://www.docker.com/products/docker-desktop |
-| VS Code | Editor | https://code.visualstudio.com |
-| VS Code Extensions | Java support + Docker | Install: "Extension Pack for Java", "Docker" |
-| (Optional) `tree`, `jq` | Structure display / JSON formatting | `brew install tree jq` |
+| VS Code | Editor for Java | https://code.visualstudio.com |
+| VS Code Extensions | Java support + Docker tooling | Install “Extension Pack for Java”, “Docker” |
+| (Optional) `tree`, `jq` | Nice-to-have tools | `brew install tree jq` |
 
 Check versions:
 ```bash
@@ -85,52 +92,76 @@ mvn -version
 docker version
 docker compose version
 ```
+Why:
+- Confirms tools are installed and on your PATH.
 
-If `mvn` says "command not found":
+If `mvn` says “command not found”:
 ```bash
 brew install maven
 ```
+Why we do this
+- Maven is the standard tool to:
+  - generate new Java project templates,
+  - download libraries (Flink, logging, etc.),
+  - compile your code,
+  - and build a shaded (fat) JAR your Flink cluster can run.
 
-If Homebrew path not loaded (Apple Silicon):
+What happens in the background
+- brew install maven downloads and installs Maven.
+- mvn -version verifies Maven is available on your PATH and shows the Java version in use.
+
+How it helps
+- Without Maven, you can’t easily create the project or produce the shaded jar that Flink needs.
+
+
+If Homebrew path isn’t loaded (Apple Silicon):
 ```bash
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 ```
+Why:
+- Ensures your shell finds Homebrew-installed tools like `mvn`.
 
 ---
 
-## 4. Repository Layout
+## 4) Repository Layout (Where things go and why)
 
-After setup it will look like:
-
+After set up:
 ```
 LEARN-apache-flink-java/
-├── docker-compose.yml
-├── jars/                   # holds all runnable shaded jars
-├── flink-wordcount/         # first Java project
+├── docker-compose.yml           # defines your local Flink cluster
+├── jars/                        # all runnable shaded jars go here
+├── flink-wordcount/             # first Java project
 │   ├── pom.xml
 │   └── src/...
-└── (future projects) e.g. flink-kafka-demo/, flink-table-sql/, ...
+└── (more projects later) e.g. flink-kafka-demo/, flink-table-sql/, ...
 ```
+
+Why:
+- `docker-compose.yml` and `jars/` live at the root so Docker can mount `jars/` easily into containers.
+- Each project is a self-contained Maven module you can build independently.
 
 ---
 
-## 5. Step-by-Step Setup
+## 5) Step‑by‑Step Setup (Commands + Why)
 
 Create base folder and enter it:
 ```bash
 mkdir -p ~/LEARN-apache-flink-java
 cd ~/LEARN-apache-flink-java
 ```
+Why:
+- Keeps all your learning files together. Using `~/LEARN-apache-flink-java` avoids path confusion.
 
 Create `jars/` folder (shared volume):
 ```bash
 mkdir -p jars
 ```
+Why:
+- This folder is mounted into Flink containers so they can see your JARs.
 
-Create the Docker Compose file (see section 11 for explanation).  
-File: `docker-compose.yml`:
-
+Create the Docker Compose file (defines your local Flink cluster).  
+File: `docker-compose.yml`
 ```yaml
 services:
   jobmanager:
@@ -168,24 +199,51 @@ networks:
     name: flink-net
 ```
 
+Why we do this
+- jars/ is a shared local folder where you drop built jars.
+- docker-compose.yml describes two containers (JobManager and TaskManager) and maps jars/ into them.
+
+What happens in the background
+- Docker Compose:
+  - pulls images if missing,
+  - creates a network so containers talk to each other by name,
+  - binds your local ./jars to /opt/flink/usrlib inside the containers (Flink scans this path for jars in the Web UI submit page).
+
+How it helps
+- Any jar you copy to jars/ instantly becomes visible inside both containers at /opt/flink/usrlib. That’s how you submit jobs without re-building images.
+
+Key fields explained
+- image: flink:1.19.1-scala_2.12-java17 → Flink 1.19.1 with Java 17 runtime.
+- ports: "8081:8081" → exposes Flink Web UI to your browser on http://localhost:8081.
+- volumes: ./jars:/opt/flink/usrlib → connects your local jars folder into the container path Flink scans.
+- command: jobmanager / taskmanager → start the correct Flink processes.
+
+
 Start the cluster:
 ```bash
 docker compose up -d
 ```
+Why:
+- Launches both containers in the background (detached), creating the local cluster.
 
 Verify:
 ```bash
 docker compose ps
 ```
-Open the Flink Web UI: http://localhost:8081
+Why:
+- Confirms both services are “Up”. If not, logs will tell you why.
 
-(If you haven’t built a jar yet, UI will show an empty session.)
+Open the Flink Web UI:
+- http://localhost:8081
+
+Why:
+- The dashboard is where you can submit jobs and see cluster/job status.
 
 ---
 
-## 6. Creating Your First Project (WordCount)
+## 6) Create Your First Project (WordCount): Command + Why
 
-Generate project via Maven Archetype (run inside repo root):
+Generate a starter project (run at repo root `~/LEARN-apache-flink-java`):
 ```bash
 mvn archetype:generate \
   -DarchetypeGroupId=org.apache.flink \
@@ -198,13 +256,36 @@ mvn archetype:generate \
   -DinteractiveMode=false
 ```
 
-Enter project:
+Why we do this
+- Quickly create a ready-to-build Java skeleton project structured for Flink. Saves you from wiring everything by hand.
+
+What happens in the background
+- Maven contacts Maven Central (online repository), downloads the “archetype” (a project template) and expands it into a new folder named after your artifactId (flink-wordcount).
+- It creates standard folders (src/main/java, pom.xml, etc.).
+
+How it helps
+- You instantly get a consistent project structure that works with Flink and Maven.
+
+Line-by-line explanation of the command
+- mvn archetype:generate: Tells Maven to create a new project from a template (“archetype”).
+- -DarchetypeGroupId=org.apache.flink: Which organization provides the template (Apache Flink).
+- -DarchetypeArtifactId=flink-quickstart-java: Which template to use (Java quickstart).
+- -DarchetypeVersion=1.19.1: Template version (matches the Flink version you want).
+- -DgroupId=com.example: Your organization ID (part of the project’s coordinates; used in package naming).
+- -DartifactId=flink-wordcount: Your project name; also becomes the folder name.
+- -Dversion=1.0-SNAPSHOT: Project version (SNAPSHOT means “in development”).
+- -Dpackage=com.example: The Java package for your source code (folders under src/main/java).
+- -DinteractiveMode=false: Don’t ask questions; use the values provided.
+
+
+Enter the project:
 ```bash
 cd flink-wordcount
 ```
+Why:
+- Work inside the new project’s folder.
 
-Replace `pom.xml` with this (explanation in section 11):
-
+Replace `pom.xml` with this build recipe (sets Java 17, Flink deps, shade plugin, main class):
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -283,8 +364,31 @@ Replace `pom.xml` with this (explanation in section 11):
 </project>
 ```
 
-Create the main class `src/main/java/com/example/WordCount.java`:
+You opened and replaced flink-wordcount/pom.xml with a version that:
+- sets Java 17,
+- adds Flink dependencies as “provided”,
+- and configures the Maven Shade Plugin to produce a fat jar named flink-wordcount-assembly.jar,
+- sets the main class (com.example.WordCount).
 
+Why we do this
+- Default quickstart pom is fine, but the Shade plugin config ensures we get one runnable jar with your code and non-Flink dependencies.
+- “provided” scope means the Flink runtime libraries come from the Docker image, not your jar (avoids version conflicts and big jars).
+
+What happens in the background
+- When you later run mvn package, Maven:
+  - downloads dependencies,
+  - compiles your code,
+  - then Shade plugin merges classes/resources into a single jar with the main class written into the manifest.
+
+How it helps
+- The Flink cluster expects a runnable jar. Shading makes it portable and easier to submit.
+
+Tip: Java version mismatch
+- We use Docker images with Java 17 runtime (image tag ends with -java17).
+- If you choose a Java 11 image, you must set the pom compiler target to 11 to avoid UnsupportedClassVersionError.
+
+
+Create the main class `src/main/java/com/example/WordCount.java`:
 ```java
 package com.example;
 
@@ -329,70 +433,132 @@ public class WordCount {
     }
 }
 ```
+Why this code:
+- A minimal streaming pipeline:
+  - Creates an environment.
+  - Reads a small in-memory list of lines.
+  - Splits into words and maps each word to (word, 1).
+  - Groups by the word and sums counts.
+  - Prints results to stdout (TaskManager logs).
+- The restart strategy is illustrative (how a real job might be configured).
 
-Return to repo root:
+Go back to repo root:
 ```bash
 cd ..
 ```
+Why:
+- You’ll build and manage containers from the repository root.
 
 ---
 
-## 7. Building the Shaded JAR
+## 7) Build the Shaded JAR (What happens under the hood)
 
-From project folder:
+Build and copy:
 ```bash
 cd flink-wordcount
 mvn clean package -DskipTests
 cd ..
-```
-
-Copy jar into shared `jars/` folder:
-```bash
 cp flink-wordcount/target/flink-wordcount-assembly.jar jars/
-```
-
-Verify:
-```bash
 ls -l jars/
 ```
+Why
+- `mvn clean package` compiles your code and runs the Shade plugin to produce one runnable JAR.
+- Copying it into `jars/` makes it visible to the containers at `/opt/flink/usrlib`.
+- `ls -l jars/` confirms the JAR is actually in the shared folder.
+- “Compile and package” your code into a single runnable jar, then place it where the containers can see it.
+
+What happens in the background
+- mvn clean removes previous build outputs.
+- mvn package:
+  - compiles Java,
+  - resolves dependencies from Maven Central,
+  - the Shade plugin creates flink-wordcount-assembly.jar with your main class in the manifest.
+- cp … ../jars/ → copies the jar into the shared folder mounted inside containers.
+
+How it helps
+- Once the jar is in jars/, it appears inside containers at /opt/flink/usrlib.
+
+Tip
+- Each time you change code, repeat “mvn package” and copy the resulting jar into jars/.
+
+
+Behind the scenes:
+- Maven downloads dependencies from Maven Central (first time).
+- Shade merges your classes and non-provided dependencies and adds the Main-Class entry so Flink can detect `com.example.WordCount`.
 
 ---
 
-## 8. Running / Submitting the Job
+## 8) Run / Submit the Job (Why multiple methods)
 
-### Method A: Web UI (Recommended first time)
-1. Open http://localhost:8081
-2. Click "Submit new job"
-3. You should see `flink-wordcount-assembly.jar`
-4. Select it → If Main Class not auto-filled, type `com.example.WordCount`
-5. Click "Submit"
+Method A — Web UI (easiest to see what’s happening):
+1) http://localhost:8081 → Submit new job  
+2) Pick `flink-wordcount-assembly.jar` (Flink scans `/opt/flink/usrlib`)  
+3) Main class = `com.example.WordCount` (autodetected)  
+4) Submit
 
-### Method B: CLI inside JobManager
+Why:
+- Visual, simple, and good for learning.
+
+Method B — CLI inside JobManager (scriptable):
 ```bash
 docker compose exec jobmanager /opt/flink/bin/flink run /opt/flink/usrlib/flink-wordcount-assembly.jar
 ```
+Why:
+- Useful in automation or when working entirely from terminal.
 
-### Method C: REST API
+Method C — REST API (advanced/CI):
 ```bash
 curl -F "jarfile=@flink-wordcount/target/flink-wordcount-assembly.jar" http://localhost:8081/jars/upload
-# Output JSON shows something like ..."filename":"/.../jars/<id>"...
+# Response shows ..."filename":"/.../jars/<id>"
 curl -X POST http://localhost:8081/jars/<id>/run
 ```
+Why:
+- Lets you integrate submissions into scripts and CI/CD without logging into the container or UI.
+
+What happens on submit:
+- JobManager loads your jar, builds a JobGraph, schedules tasks on TaskManagers, and starts executing. Your `print()` sink writes to TaskManager logs.
 
 ---
 
-## 9. Development Loop
+## 9) View Output (Where to look and why)
 
-After editing code:
+Follow TaskManager logs:
+```bash
+docker logs -f flink-taskmanager-1
+```
+Why:
+- The `.print()` operator writes to stdout of the TaskManager process.
+- `-f` follows the log stream so you can watch output live.
+
+Expected sample lines:
+```
+(hello,3)
+(flink,2)
+(world,1)
+(loves,1)
+(streams,1)
+(docker,1)
+```
+
+Stop following:
+- Press Ctrl+C (containers keep running).
+
+---
+
+## 10) Development Loop (Why rebuild every time)
+
+After changing code:
 ```bash
 cd flink-wordcount
 mvn -q package -DskipTests
 cp target/flink-wordcount-assembly.jar ../jars/
 cd ..
+# Re-submit via UI, CLI, or REST
 ```
-Resubmit using any method (cancel old job first in UI if still running).
+Why:
+- Flink runs compiled jars, not source. Rebuilding packages your latest code into the JAR you submit.
 
-Tip: Add a VS Code Task (`.vscode/tasks.json`) to automate build + copy:
+Optional VS Code task to automate:
 ```json
 {
   "version": "2.0.0",
@@ -406,27 +572,69 @@ Tip: Add a VS Code Task (`.vscode/tasks.json`) to automate build + copy:
   ]
 }
 ```
-
-Run via: Command Palette → "Tasks: Run Task" → "Build Flink Jar".
+Why:
+- One-click build+copy from VS Code to speed up your iteration cycle.
 
 ---
 
-## 10. Common Errors & Fixes
+## 11) Explaining the Files & Code (Plain-English)
 
-| Symptom / Error | Cause | Fix |
-|-----------------|-------|-----|
-| `zsh: command not found: mvn` | Maven not installed or PATH not set | `brew install maven`; ensure brew shellenv loaded |
-| JAR not listed in Web UI | Not in `jars/` at container start OR wrong directory | Copy jar to `./jars/`; refresh UI; or use upload |
-| `JAR file does not exist: /opt/flink/usrlib/...` | Volume empty in container | Ensure you ran `docker compose` in correct folder with `jars/` present |
-| `UnsupportedClassVersionError ... compiled by a more recent version` | Java version mismatch (compiled with 17, runtime 11) | Use Java 17 image (`flink:...-java17`) OR compile with `<maven.compiler.*>11</...>` |
-| No output / job never finishes | Using `print()` → check TaskManager logs | `docker logs -f flink-taskmanager-1` |
-| Port 8081 busy | Another service occupying port | Change mapping: `"8082:8081"` in compose |
-| `ClassNotFoundException` for your class | Wrong main class or jar not shaded | Use shaded jar (**ends with -assembly.jar**) |
-| `Permission denied` copying jar | File permissions | `chmod 644 jars/*.jar` |
-| Web UI empty after rebuild | Old jar cached or job not resubmitted | Cancel old job; resubmit new jar |
-| `Unknown module: jdk.compiler` warnings | Harmless flags referencing absent module | Ignore (no functional impact) |
+docker-compose.yml — key lines explained:
+- `image: flink:1.19.1-scala_2.12-java17`: Use Flink runtime with Java 17 so it matches your compiled code.
+- `ports: "8081:8081"`: Show Flink Web UI on your Mac’s port 8081.
+- `volumes: ./jars:/opt/flink/usrlib`: Share your local `jars/` into the container at the path the UI scans for jars.
+- `command: jobmanager` / `command: taskmanager`: Start the right Flink processes within each container.
+- `taskmanager.numberOfTaskSlots: 2` and `parallelism.default: 2`: Basic parallelism settings for learning; change as needed.
 
-Diagnostic commands:
+pom.xml — why certain settings:
+- `<scope>provided</scope>`: Flink libraries come from the container; don’t bundle them into your jar (prevents version conflicts and bloat).
+- `maven-shade-plugin`: Creates a single runnable JAR for Flink to execute.
+- `<finalName>${project.artifactId}-assembly</finalName>`: Predictable output filename like `flink-wordcount-assembly.jar`.
+- `<execution.mainClass>` + manifest transformer: Makes the main class discoverable automatically by Flink.
+
+WordCount.java — what it does:
+- Creates a stream environment.
+- Reads a few demo strings into a stream.
+- Tokenizes into words and maps to pairs `(word, 1)`.
+- Groups by `word` and sums counts.
+- Prints the results to logs.
+- Calls `env.execute(...)` to start the job in the cluster.
+
+Why a shaded JAR:
+- Ensures your job has everything it needs (except the Flink runtime itself which is provided by the container). No missing-class surprises on the cluster.
+
+---
+
+## 12) Common Errors & Fixes (Cause and Why)
+
+- `zsh: command not found: mvn`  
+  Why: Maven not installed or PATH not set.  
+  Fix: `brew install maven`, ensure brew shellenv is loaded.
+
+- `JAR file does not exist: /opt/flink/usrlib/...`  
+  Why: Container doesn’t see your JAR (wrong folder, wrong working dir for `docker compose up`, or jar not copied).  
+  Fix: Copy the jar to `./jars` and ensure you run Docker commands from the folder that contains `docker-compose.yml`.  
+  Check inside container:  
+  ```bash
+  docker compose exec jobmanager ls -l /opt/flink/usrlib
+  ```
+
+- `UnsupportedClassVersionError ... compiled by a more recent version`  
+  Why: Jar compiled with Java 17 but container running Java 11 (or vice versa).  
+  Fix: Use `flink:...-java17` image (recommended), or set Maven compiler target to 11.
+
+- `Unknown module: jdk.compiler` warnings  
+  Why: Harmless JRE module flags; can be ignored.
+
+- Port 8081 busy  
+  Why: Another process is using it.  
+  Fix: Change mapping to `"8082:8081"` then open http://localhost:8082.
+
+- `ClassNotFoundException` for your main class  
+  Why: Wrong jar (not shaded) or missing manifest main class.  
+  Fix: Use the `-assembly.jar` built by Shade and ensure `<execution.mainClass>` matches your class.
+
+Diagnostics you can run:
 ```bash
 docker compose exec jobmanager ls -l /opt/flink/usrlib
 docker compose exec jobmanager java -version
@@ -436,37 +644,7 @@ docker compose logs taskmanager
 
 ---
 
-## 11. Explaining the Files & Code
-
-### docker-compose.yml Key Lines
-- `image: flink:1.19.1-scala_2.12-java17`: Uses Flink 1.19.1 built with Scala 2.12 & Java 17 runtime.
-- `ports: "8081:8081"`: Exposes Flink Web UI to your browser.
-- `volumes: ./jars:/opt/flink/usrlib`: Maps host folder `jars/` into container; Flink scans `/opt/flink/usrlib` for jars.
-- `taskmanager.numberOfTaskSlots: 2`: Each TaskManager container offers 2 parallel slots.
-- `command: jobmanager` / `command: taskmanager`: Runs respective daemons.
-
-### pom.xml Highlights
-- `<scope>provided</scope>`: Tells Maven these dependencies (Flink) are provided by the cluster runtime; they are NOT bundled.
-- `maven-shade-plugin`: Creates a fat jar combining your classes + (non-provided) dependencies.
-- `<finalName>${project.artifactId}-assembly</finalName>`: Makes output file predictable: `flink-wordcount-assembly.jar`.
-- `<execution.mainClass>` and Manifest transformer: Ensures Flink can detect the main class automatically.
-
-### WordCount.java Logic (Layman’s Terms)
-1. Get a runtime environment (`getExecutionEnvironment()`).
-2. Define input using `fromElements(...)` (in real jobs this would be Kafka, files, sockets).
-3. Break each line into words (Tokenizer).
-4. Convert each word to a pair (word, 1).
-5. Group by the word (`keyBy`).
-6. Sum counts per word.
-7. `print()` results to standard output (goes to TaskManager logs).
-8. `env.execute("Streaming WordCount Example")` starts the job on the cluster.
-
-### Why "Shaded" JAR?
-Without shading, dependencies might be missing or classpaths conflict. Shading centralizes all needed user-code dependencies into one jar so the cluster can run it reliably.
-
----
-
-## 12. Adding More Projects
+## 13) Adding More Projects (Scaling your lab)
 
 Example: add a Kafka demo project.
 ```bash
@@ -480,58 +658,52 @@ mvn archetype:generate -DarchetypeGroupId=org.apache.flink \
   -Dpackage=com.example.kafka \
   -DinteractiveMode=false
 ```
-Repeat steps: adjust `pom.xml`, add code, build, copy jar to `jars/`, submit.
-
-You can safely have multiple jars in `jars/`; choose which to run in the UI.
+Why:
+- You can create many independent projects. Build each, copy its `-assembly.jar` to `jars/`, and choose which to run from the Web UI.
 
 ---
 
-## 13. Cleaning Up
+## 14) Cleaning Up (When you’re done)
 
 Stop containers:
 ```bash
 docker compose down
 ```
+Why:
+- Stops and removes containers and the network.
 
-Remove containers + network + any anonymous volumes:
+Remove containers + network + anonymous volumes:
 ```bash
 docker compose down -v
 ```
+Why:
+- Cleans up any leftover anonymous volumes for a fresh start next time.
 
-Remove all built jars:
+Remove built jars:
 ```bash
 rm -f jars/*.jar
 ```
-
-Remove everything (CAUTION):
-```bash
-cd ..
-rm -rf LEARN-apache-flink-java
-```
+Why:
+- Clears old artifacts if you want a clean `jars/` folder.
 
 ---
 
-## 14. Next Learning Steps
+## 15) Next Learning Steps (Ideas)
 
-Progressively extend:
-1. Add a **Socket source** (e.g. `nc -lk 9000`) and read live text.
-2. Integrate **Kafka** (add `flink-connector-kafka` dependency and run a Kafka docker compose).
-3. Explore **Table API / SQL** (add SQL dependencies, start SQL client).
-4. Practice **stateful operations** and enable **checkpointing**:
-   ```java
-   env.enableCheckpointing(10_000); // every 10s
-   ```
-5. Try **Event Time & Watermarks**.
-6. Use **RocksDB state backend** for large keyed state.
-7. Add **Prometheus + Grafana** for metrics.
-8. Package as **Application Mode** (Flink container starts directly with your jar).
-9. Deploy a job to a remote cluster (Kubernetes / Yarn / Standalone remote).
+- Add a Socket source (e.g., `nc -lk 9000`) and stream live text.
+- Integrate Kafka (add `flink-connector-kafka`, start Kafka via Docker).
+- Explore Table API / SQL (add SQL dependencies, try the SQL client).
+- Enable checkpointing and state backends (e.g., RocksDB) for fault tolerance.
+- Play with event time and watermarks.
+- Add metrics via Prometheus + Grafana.
+- Try Application Mode (Flink container starts directly with your job jar).
+- Deploy to a remote cluster (Kubernetes, standalone remote, etc.).
 
-Ask for any of these and we can extend the README or create new project templates.
+Ask and we can extend this lab with templates for each topic.
 
 ---
 
-## Quick Reference Command Cheat Sheet
+## 16) Quick Command Cheat Sheet
 
 | Task | Command |
 |------|---------|
@@ -546,29 +718,32 @@ Ask for any of these and we can extend the README or create new project template
 | Upload via REST | `curl -F "jarfile=@path/to.jar" http://localhost:8081/jars/upload` |
 | Run uploaded jar | `curl -X POST http://localhost:8081/jars/<id>/run` |
 
----
-
-## FAQ
-
-Q: Can I keep multiple versions of the same project jar?  
-A: Yes. Rename them before copying (e.g. `cp target/flink-wordcount-assembly.jar ../jars/flink-wordcount-v2.jar`).
-
-Q: Why not include Flink libraries inside my jar?  
-A: They are provided by the cluster image; bundling them increases size and risks version conflicts.
-
-Q: Where are results written?  
-A: For `print()`, they go to TaskManager stdout logs. In real jobs you would sink to Kafka, files, or databases.
+Why this cheat sheet:
+- These are your most-used commands in daily learning and troubleshooting.
 
 ---
 
-## Need More?
+## 17) FAQ (Short, practical answers)
 
-Open an issue or ask:  
-- "Add Kafka example"  
-- "Add Table API example"  
-- "Add checkpointing & RocksDB"  
-- "Convert to Application Mode"  
+- Can I keep multiple versions of the same project jar?  
+  Yes. Rename them on copy, e.g. `flink-wordcount-v2.jar`, and choose in the Web UI.
 
-I’ll guide you further.
+- Why not include Flink libraries inside my jar?  
+  The container already provides them. Bundling risks version conflicts and larger jars.
 
-Happy streaming!
+- Where are results written?  
+  For `.print()`, to TaskManager stdout logs (`docker logs -f flink-taskmanager-1`). Real jobs typically write to Kafka, files, or databases.
+
+- Apple Silicon (M1/M2/M3) considerations?  
+  The official Flink images are multi‑arch. If you hit oddities, ensure Docker Desktop is up-to-date, or add a platform override. Using the `-java17` image aligns runtime with your compiled code.
+
+---
+
+Happy streaming! If you want, I can add:
+- VS Code tasks for each project,
+- A Makefile for build and submit,
+- Kafka + Flink example,
+- Table/SQL example,
+- Checkpointing and RocksDB configuration.
+
+Just ask which one you want next.
