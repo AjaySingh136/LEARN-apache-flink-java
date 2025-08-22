@@ -33,7 +33,7 @@ Why this setup:
 14. Cleaning Up (Stop and reset)
 15. Next Learning Steps (Where to go next)
 16. Quick Command Cheat Sheet
-17. FAQ
+
 
 ---
 
@@ -739,11 +739,431 @@ Why this cheat sheet:
 
 ---
 
-Happy streaming! If you want, I can add:
-- VS Code tasks for each project,
-- A Makefile for build and submit,
-- Kafka + Flink example,
-- Table/SQL example,
-- Checkpointing and RocksDB configuration.
+# Add Kafka, Redis, and Neo4j to your Flink Docker Lab (End-to-End)
 
-Just ask which one you want next.
+Goal:
+- Run Kafka, Redis, and Neo4j alongside your existing Flink cluster in Docker.
+- Produce events into Kafka and (later, via a Flink job) write results to Redis and Neo4j.
+- Clear, step-by-step instructions with simple explanations of what/why/how.
+
+What you will get:
+- A single docker-compose.yml that starts: Flink (JobManager + TaskManager), Kafka (KRaft mode, no ZooKeeper), Redis, and Neo4j.
+- Host and container ports wired for both “inside Docker” and “from your Mac” usage.
+- Test commands to verify Kafka, Redis, and Neo4j before you write Flink jobs.
+
+Note on names and networking:
+- Inside Docker, services reach each other by service name on the default network (e.g., “kafka”, “redis”, “neo4j”).
+- Your Flink jobs running in containers should use those service names, not localhost.
+- From your Mac (host), you use localhost and the mapped ports we expose.
+
+---
+
+## 1) Update your docker-compose.yml (Full file)
+
+Replace your current file with this one. It keeps your existing Flink cluster and adds Kafka, Redis, and Neo4j. It also uses a Kafka image configured for both internal (Docker network) and external (your Mac) clients.
+
+```yaml name=docker-compose.yml
+services:
+  jobmanager:
+    image: flink:1.19.1-scala_2.12-java17
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"   # Flink Web UI (host -> container)
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    command: jobmanager
+    volumes:
+      - ./jars:/opt/flink/usrlib
+
+  taskmanager:
+    image: flink:1.19.1-scala_2.12-java17
+    container_name: flink-taskmanager-1
+    depends_on:
+      - jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    command: taskmanager
+    volumes:
+      - ./jars:/opt/flink/usrlib
+
+  # Kafka in KRaft (no ZooKeeper), with internal and external listeners.
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9094:9094"   # external client access from your Mac (localhost:9094)
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # Listeners: internal broker :9092, controller :9093, host-mapped :9094
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:9094
+      # Inside Docker other services use kafka:9092; from Mac use localhost:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # For quick demos (Kafka will create topics automatically when first used)
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      # Storage path
+      - KAFKA_LOG_DIRS=/bitnami/kafka/data
+    volumes:
+      - kafka_data:/bitnami/kafka
+    # Kafka will start fine without Flink, but everything shares the default network
+    depends_on:
+      - jobmanager
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"  # Redis from host: localhost:6379
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  # Neo4j graph database (Community edition)
+  neo4j:
+    image: neo4j:5.22-community
+    container_name: neo4j
+    ports:
+      - "7474:7474"  # HTTP UI (browser)
+      - "7687:7687"  # Bolt (drivers)
+    environment:
+      # Change this password to something you like
+      - NEO4J_AUTH=neo4j/neo4j123
+      # Modest memory settings for laptops; adjust as needed
+      - NEO4J_server_memory_pagecache_size=512M
+      - NEO4J_server_memory_heap_initial__size=512M
+      - NEO4J_server_memory_heap_max__size=512M
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+networks:
+  default:
+    name: flink-net
+
+volumes:
+  kafka_data:
+  redis_data:
+  neo4j_data:
+  neo4j_logs:
+```
+
+What this file does (in easy words):
+- Flink stays the same (JobManager + TaskManager).
+- Kafka runs in “KRaft” mode (modern Kafka without ZooKeeper), using:
+  - Internal listener for Docker services: kafka:9092
+  - External listener so your Mac tools can reach it: localhost:9094
+- Redis exposes port 6379 to your Mac.
+- Neo4j exposes 7474 (web UI) and 7687 (Bolt driver) to your Mac.
+- Named volumes (kafka_data, redis_data, neo4j_data, neo4j_logs) persist data between restarts.
+
+Why two Kafka listeners?
+- Your Flink containers talk to Kafka via the Docker network using “kafka:9092”.
+- You (on macOS) can use tools on “localhost:9094”.
+- This avoids “it works inside Docker but not from my laptop” problems.
+
+Apple Silicon note:
+- Bitnami/Redis/Neo4j images are multi-arch and work on M1/M2/M3.
+
+---
+
+## 2) Start everything
+
+```bash
+docker compose up -d
+```
+
+Why:
+- Starts all containers in the background (detached). On the first run, Docker pulls the images.
+
+Check status:
+```bash
+docker compose ps
+```
+
+Why:
+- Confirms services are “Up”. If something is “Exited”, read its logs:
+```bash
+docker compose logs kafka
+docker compose logs redis
+docker compose logs neo4j
+```
+
+---
+
+## 3) Quick tests that everything works
+
+These tests do not require any Java code yet. They verify your Docker services are healthy.
+
+### 3.1 Kafka: create a topic, produce and consume
+
+Create a topic (inside the Kafka container):
+```bash
+docker compose exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh \
+  --bootstrap-server kafka:9092 \
+  --create --topic test-events --partitions 1 --replication-factor 1
+```
+Why:
+- Creates a topic named “test-events” where we’ll write/read messages.
+- Uses the internal address kafka:9092 (service name on Docker network).
+
+List topics:
+```bash
+docker compose exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh \
+  --bootstrap-server kafka:9092 --list
+```
+
+Start a consumer to watch messages:
+```bash
+docker compose exec kafka /opt/bitnami/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:9092 \
+  --topic test-events \
+  --from-beginning
+```
+Why:
+- This terminal will print any messages on “test-events”.
+
+Open another terminal and start a producer:
+```bash
+docker compose exec kafka /opt/bitnami/kafka/bin/kafka-console-producer.sh \
+  --bootstrap-server kafka:9092 \
+  --topic test-events
+```
+Type a few lines, press Enter after each. You should see them show up in the consumer window.
+
+From your Mac (host) using the external port:
+- If you have a local Kafka client (e.g., kcat), you can connect with `-b localhost:9094`.
+
+### 3.2 Redis: simple ping and set/get
+```bash
+docker compose exec redis redis-cli ping
+docker compose exec redis redis-cli set demo "hello-redis"
+docker compose exec redis redis-cli get demo
+```
+Why:
+- Verifies Redis is reachable and can store/read a key.
+
+### 3.3 Neo4j: open the browser UI
+- Go to http://localhost:7474
+- Log in with user: neo4j, password: neo4j123 (change in compose for real use)
+- Optional: Try a simple Cypher in the UI:
+  ```
+  CREATE (:Person {name: "Alice"})
+  MATCH (n:Person) RETURN n LIMIT 5;
+  ```
+
+---
+
+## 4) How your Flink job will connect to services
+
+Inside Docker (from Flink containers), use service names:
+- Kafka bootstrap servers: kafka:9092
+- Redis host/port: redis:6379
+- Neo4j Bolt URI: bolt://neo4j:7687 (user neo4j, password from compose)
+
+From your Mac (host), use:
+- Kafka: localhost:9094
+- Redis: localhost:6379
+- Neo4j Browser: http://localhost:7474, Bolt: bolt://localhost:7687
+
+Why different addresses?
+- “kafka”, “redis”, “neo4j” are DNS names only visible inside the Docker network. Your Mac needs mapped ports on localhost.
+
+---
+
+## 5) Sample snippets (what it looks like in code)
+
+These are short examples to show how to reference connection settings in a Flink job. You’ll integrate them into your own project code.
+
+### 5.1 Flink Kafka Source (read strings)
+
+```java
+// Add the Kafka connector dependency in your pom (version aligned with Flink 1.19).
+// Example (check Flink docs for the latest 1.19-compatible version):
+// <dependency>
+//   <groupId>org.apache.flink</groupId>
+//   <artifactId>flink-connector-kafka</artifactId>
+//   <version>3.2.0-1.19</version>
+// </dependency>
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+
+KafkaSource<String> source = KafkaSource.<String>builder()
+    .setBootstrapServers("kafka:9092")       // internal Docker address
+    .setTopics("test-events")
+    .setGroupId("demo-group")
+    .setValueOnlyDeserializer(new SimpleStringSchema())
+    .build();
+
+// env is your StreamExecutionEnvironment
+env.fromSource(source, WatermarkStrategy.noWatermarks(), "kafka-source");
+```
+
+Explanation:
+- Points the Kafka client at kafka:9092 (works inside Docker).
+- Reads text messages from topic “test-events”.
+- Uses a simple string deserializer.
+
+### 5.2 Writing to Redis from Flink (simple example)
+
+```java
+// Add a Redis client like Jedis to your pom:
+// <dependency>
+//   <groupId>redis.clients</groupId>
+//   <artifactId>jedis</artifactId>
+//   <version>5.1.3</version>
+// </dependency>
+
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import redis.clients.jedis.Jedis;
+
+public class RedisSink extends RichSinkFunction<String> {
+  private transient Jedis jedis;
+
+  @Override
+  public void open(org.apache.flink.configuration.Configuration parameters) {
+    jedis = new Jedis("redis", 6379); // redis is the service name
+  }
+
+  @Override
+  public void invoke(String value, Context context) {
+    // simplistic example: push each line to a list
+    jedis.lpush("events", value);
+  }
+
+  @Override
+  public void close() {
+    if (jedis != null) jedis.close();
+  }
+}
+
+// Usage:
+// someDataStream.addSink(new RedisSink());
+```
+
+Explanation:
+- Uses the Redis Docker service name “redis” and default port 6379.
+- Pushes each processed record to a Redis list named “events”.
+
+### 5.3 Writing to Neo4j from Flink (simple example)
+
+```java
+// Neo4j Java Driver dependency:
+// <dependency>
+//   <groupId>org.neo4j.driver</groupId>
+//   <artifactId>neo4j-java-driver</artifactId>
+//   <version>5.21.0</version>
+// </dependency>
+
+import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.neo4j.driver.*;
+
+public class Neo4jSink extends RichSinkFunction<String> {
+  private transient Driver driver;
+
+  @Override
+  public void open(org.apache.flink.configuration.Configuration parameters) {
+    driver = GraphDatabase.driver(
+      "bolt://neo4j:7687",  // service name in Docker
+      AuthTokens.basic("neo4j", "neo4j123")  // match your compose env
+    );
+  }
+
+  @Override
+  public void invoke(String value, Context context) {
+    try (Session session = driver.session()) {
+      session.executeWrite(tx -> {
+        // Very simple example: create a node for each value
+        tx.run("MERGE (:Event {payload: $p})", Values.parameters("p", value));
+        return null;
+      });
+    }
+  }
+
+  @Override
+  public void close() {
+    if (driver != null) driver.close();
+  }
+}
+
+// Usage:
+// someDataStream.addSink(new Neo4jSink());
+```
+
+Explanation:
+- Connects to Neo4j over Bolt using the Docker service name “neo4j”.
+- Writes each record as a node (MERGE ensures idempotent insert per payload).
+
+Note:
+- Adjust schemas, indexes, and transaction batching for real workloads.
+
+---
+
+## 6) Typical end-to-end flow (for your learning pipeline)
+
+1) Start all services:
+```bash
+docker compose up -d
+```
+2) Verify Kafka, Redis, Neo4j quickly with the tests in section 3.
+3) Build your Flink job jar and copy it to ./jars:
+```bash
+mvn -q -f flink-wordcount/pom.xml clean package -DskipTests
+cp flink-wordcount/target/flink-wordcount-assembly.jar jars/
+```
+4) Submit the job (Web UI or CLI), and in your job use:
+- Kafka bootstrap servers: kafka:9092
+- Redis host: redis, port 6379
+- Neo4j URI: bolt://neo4j:7687
+
+5) Watch TaskManager logs for your job’s output:
+```bash
+docker logs -f flink-taskmanager-1
+```
+
+---
+
+## 7) Troubleshooting (quick causes and fixes)
+
+- Kafka topic not found / connection refused:
+  - Make sure Kafka is “Up”: `docker compose ps`
+  - Use the right address (inside Docker: kafka:9092; from Mac: localhost:9094)
+  - Check logs: `docker compose logs kafka`
+
+- Host client cannot connect to Kafka:
+  - Use `localhost:9094` (not 9092). 9092 is internal to Docker.
+  - The advertised listeners must include `PLAINTEXT_HOST://localhost:9094` (already set in compose).
+
+- Redis/Neo4j auth or connection issues:
+  - Redis has no password by default here. Neo4j uses NEO4J_AUTH from compose; verify credentials.
+  - Confirm ports are exposed: Redis 6379, Neo4j 7474/7687.
+
+- Flink job can’t resolve hostnames:
+  - Ensure your job uses service names (kafka, redis, neo4j) and runs inside Docker (Flink cluster).
+  - All services share the `flink-net` network by default.
+
+- Apple Silicon quirks:
+  - Ensure Docker Desktop is up to date.
+  - Bitnami/Redis/Neo4j images are multi-arch; if an image fails, try pulling the latest tag or check image docs.
+
+---
+
+If you want, I can:
+- Add a minimal Flink job template that reads Kafka and writes to Redis/Neo4j.
+- Add a VS Code task or Makefile to build and submit in one command.
+- Add a Kafka UI (e.g., Redpanda Console) to browse topics/messages.
