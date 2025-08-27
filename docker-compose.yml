@@ -34,21 +34,18 @@ services:
     volumes:
       - ./jars:/opt/flink/usrlib
 
-  # -------------------- Kafka (single-broker, KRaft mode) --------------------
+  # Kafka broker
   kafka:
     image: bitnami/kafka:3.7
     container_name: kafka
     ports:
-      - "29092:29092"          # Host access to Kafka (outside Docker)
+      - "29092:29092"
     environment:
-      # Enable KRaft (no ZooKeeper)
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-
-      # Listeners for both inside Docker network and from your Mac
       - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
@@ -61,31 +58,51 @@ services:
     volumes:
       - kafka_data:/bitnami/kafka
 
-  # -------------------- Redis --------------------
+  # Kafka Web UI (Kafdrop)
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKER_CONNECT: kafka:9092
+      JVM_OPTS: -Xms32M -Xmx64M
+    depends_on:
+      - kafka
+
+  # Redis
   redis:
     image: redis:7-alpine
     container_name: redis
     ports:
-      - "6379:6379"            # Redis on localhost:6379
+      - "6379:6379"
     command: [ "redis-server", "--appendonly", "yes" ]
     volumes:
       - redis_data:/data
 
-  # -------------------- Neo4j --------------------
+  # Neo4j
   neo4j:
     image: neo4j:5.20-community
     container_name: neo4j
     ports:
-      - "7474:7474"            # HTTP UI: http://localhost:7474
-      - "7687:7687"            # Bolt: bolt://localhost:7687
+      - "7474:7474"
+      - "7687:7687"
     environment:
       - NEO4J_AUTH=neo4j/password
-      # Optional tuning for local dev (adjust as needed)
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=1G
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
+
+  # RedisInsight
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "8083:8001"
+    depends_on:
+      - redis
 
 networks:
   default:

@@ -1,2 +1,4 @@
 com/example/WordCount$Tokenizer.class
+com/example/KafkaProducerExample.class
+com/example/KafkaConsumerExample.class
 com/example/WordCount.class

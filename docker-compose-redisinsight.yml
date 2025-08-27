@@ -1,0 +1,6 @@
+services:
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "8083:8001"
