@@ -982,6 +982,18 @@ From your Mac (host), use:
 Why different addresses?
 - “kafka”, “redis”, “neo4j” are DNS names only visible inside the Docker network. Your Mac needs mapped ports on localhost.
 
+
+# Dashboard Screenshots
+
+### Flink Dashboard
+![Flink Dashboard](flink_dashboard.png)
+
+### Kafka UI
+![Kafka UI](kafka_ui.png)
+
+### Neo4j Dashboard
+![Neo4j Dashboard](neo4j_dashboard.png)
+
 ---
 
 ## 5) Sample snippets (what it looks like in code)
