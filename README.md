@@ -11,7 +11,7 @@ Context and goal:
 Why this setup:
 - It separates “runtime” (Flink in Docker) from “development” (your code on macOS).
 - It’s quick to iterate: edit → build → copy JAR → submit → see logs.
-- You can keep many small demo projects side‑by‑side (e.g., `flink-wordcount/`, `flink-kafka-demo/`, `flink-table-sql/`) and use the same local cluster to learn.
+- You can keep many small demo projects side‑by‑side (e.g., `flink-tst-modules/`, `flink-kafka-demo/`, `flink-table-sql/`) and use the same local cluster to learn.
 
 ---
 
@@ -131,7 +131,7 @@ After set up:
 LEARN-apache-flink-java/
 ├── docker-compose.yml           # defines your local Flink cluster
 ├── jars/                        # all runnable shaded jars go here
-├── flink-wordcount/             # first Java project
+├── flink-tst-modules/             # first Java project
 │   ├── pom.xml
 │   └── src/...
 └── (more projects later) e.g. flink-kafka-demo/, flink-table-sql/, ...
@@ -250,7 +250,7 @@ mvn archetype:generate \
   -DarchetypeArtifactId=flink-quickstart-java \
   -DarchetypeVersion=1.19.1 \
   -DgroupId=com.example \
-  -DartifactId=flink-wordcount \
+  -DartifactId=flink-tst-modules \
   -Dversion=1.0-SNAPSHOT \
   -Dpackage=com.example \
   -DinteractiveMode=false
@@ -260,7 +260,7 @@ Why we do this
 - Quickly create a ready-to-build Java skeleton project structured for Flink. Saves you from wiring everything by hand.
 
 What happens in the background
-- Maven contacts Maven Central (online repository), downloads the “archetype” (a project template) and expands it into a new folder named after your artifactId (flink-wordcount).
+- Maven contacts Maven Central (online repository), downloads the “archetype” (a project template) and expands it into a new folder named after your artifactId (flink-tst-modules).
 - It creates standard folders (src/main/java, pom.xml, etc.).
 
 How it helps
@@ -272,7 +272,7 @@ Line-by-line explanation of the command
 - -DarchetypeArtifactId=flink-quickstart-java: Which template to use (Java quickstart).
 - -DarchetypeVersion=1.19.1: Template version (matches the Flink version you want).
 - -DgroupId=com.example: Your organization ID (part of the project’s coordinates; used in package naming).
-- -DartifactId=flink-wordcount: Your project name; also becomes the folder name.
+- -DartifactId=flink-tst-modules: Your project name; also becomes the folder name.
 - -Dversion=1.0-SNAPSHOT: Project version (SNAPSHOT means “in development”).
 - -Dpackage=com.example: The Java package for your source code (folders under src/main/java).
 - -DinteractiveMode=false: Don’t ask questions; use the values provided.
@@ -280,7 +280,7 @@ Line-by-line explanation of the command
 
 Enter the project:
 ```bash
-cd flink-wordcount
+cd flink-tst-modules
 ```
 Why:
 - Work inside the new project’s folder.
@@ -294,9 +294,9 @@ Replace `pom.xml` with this build recipe (sets Java 17, Flink deps, shade plugin
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.example</groupId>
-  <artifactId>flink-wordcount</artifactId>
+  <artifactId>flink-tst-modules</artifactId>
   <version>1.0-SNAPSHOT</version>
-  <name>flink-wordcount</name>
+  <name>flink-tst-modules</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -364,10 +364,10 @@ Replace `pom.xml` with this build recipe (sets Java 17, Flink deps, shade plugin
 </project>
 ```
 
-You opened and replaced flink-wordcount/pom.xml with a version that:
+You opened and replaced flink-tst-modules/pom.xml with a version that:
 - sets Java 17,
 - adds Flink dependencies as “provided”,
-- and configures the Maven Shade Plugin to produce a fat jar named flink-wordcount-assembly.jar,
+- and configures the Maven Shade Plugin to produce a fat jar named flink-tst-modules-assembly.jar,
 - sets the main class (com.example.WordCount).
 
 Why we do this
@@ -455,10 +455,10 @@ Why:
 
 Build and copy:
 ```bash
-cd flink-wordcount
+cd flink-tst-modules
 mvn clean package -DskipTests
 cd ..
-cp flink-wordcount/target/flink-wordcount-assembly.jar jars/
+cp flink-tst-modules/target/flink-tst-modules-assembly.jar jars/
 ls -l jars/
 ```
 Why
@@ -472,7 +472,7 @@ What happens in the background
 - mvn package:
   - compiles Java,
   - resolves dependencies from Maven Central,
-  - the Shade plugin creates flink-wordcount-assembly.jar with your main class in the manifest.
+  - the Shade plugin creates flink-tst-modules-assembly.jar with your main class in the manifest.
 - cp … ../jars/ → copies the jar into the shared folder mounted inside containers.
 
 How it helps
@@ -492,7 +492,7 @@ Behind the scenes:
 
 Method A — Web UI (easiest to see what’s happening):
 1) http://localhost:8081 → Submit new job  
-2) Pick `flink-wordcount-assembly.jar` (Flink scans `/opt/flink/usrlib`)  
+2) Pick `flink-tst-modules-assembly.jar` (Flink scans `/opt/flink/usrlib`)  
 3) Main class = `com.example.WordCount` (autodetected)  
 4) Submit
 
@@ -501,14 +501,14 @@ Why:
 
 Method B — CLI inside JobManager (scriptable):
 ```bash
-docker compose exec jobmanager /opt/flink/bin/flink run /opt/flink/usrlib/flink-wordcount-assembly.jar
+docker compose exec jobmanager /opt/flink/bin/flink run /opt/flink/usrlib/flink-tst-modules-assembly.jar
 ```
 Why:
 - Useful in automation or when working entirely from terminal.
 
 Method C — REST API (advanced/CI):
 ```bash
-curl -F "jarfile=@flink-wordcount/target/flink-wordcount-assembly.jar" http://localhost:8081/jars/upload
+curl -F "jarfile=@flink-tst-modules/target/flink-tst-modules-assembly.jar" http://localhost:8081/jars/upload
 # Response shows ..."filename":"/.../jars/<id>"
 curl -X POST http://localhost:8081/jars/<id>/run
 ```
@@ -549,9 +549,9 @@ Stop following:
 
 After changing code:
 ```bash
-cd flink-wordcount
+cd flink-tst-modules
 mvn -q package -DskipTests
-cp target/flink-wordcount-assembly.jar ../jars/
+cp target/flink-tst-modules-assembly.jar ../jars/
 cd ..
 # Re-submit via UI, CLI, or REST
 ```
@@ -566,8 +566,8 @@ Optional VS Code task to automate:
     {
       "label": "Build Flink Jar",
       "type": "shell",
-      "command": "mvn clean package -DskipTests && cp target/flink-wordcount-assembly.jar ../jars/",
-      "options": { "cwd": "${workspaceFolder}/flink-wordcount" }
+      "command": "mvn clean package -DskipTests && cp target/flink-tst-modules-assembly.jar ../jars/",
+      "options": { "cwd": "${workspaceFolder}/flink-tst-modules" }
     }
   ]
 }
@@ -589,7 +589,7 @@ docker-compose.yml — key lines explained:
 pom.xml — why certain settings:
 - `<scope>provided</scope>`: Flink libraries come from the container; don’t bundle them into your jar (prevents version conflicts and bloat).
 - `maven-shade-plugin`: Creates a single runnable JAR for Flink to execute.
-- `<finalName>${project.artifactId}-assembly</finalName>`: Predictable output filename like `flink-wordcount-assembly.jar`.
+- `<finalName>${project.artifactId}-assembly</finalName>`: Predictable output filename like `flink-tst-modules-assembly.jar`.
 - `<execution.mainClass>` + manifest transformer: Makes the main class discoverable automatically by Flink.
 
 WordCount.java — what it does:
@@ -710,7 +710,7 @@ Ask and we can extend this lab with templates for each topic.
 | Start cluster | `docker compose up -d` |
 | Stop cluster | `docker compose down` |
 | Build project | `mvn clean package -DskipTests` |
-| Copy jar | `cp flink-wordcount/target/flink-wordcount-assembly.jar jars/` |
+| Copy jar | `cp flink-tst-modules/target/flink-tst-modules-assembly.jar jars/` |
 | List jars in container | `docker compose exec jobmanager ls -l /opt/flink/usrlib` |
 | Submit (CLI) | `docker compose exec jobmanager /opt/flink/bin/flink run /opt/flink/usrlib/<jar>` |
 | View TaskManager logs | `docker logs -f flink-taskmanager-1` |
@@ -726,7 +726,7 @@ Why this cheat sheet:
 ## 17) FAQ (Short, practical answers)
 
 - Can I keep multiple versions of the same project jar?  
-  Yes. Rename them on copy, e.g. `flink-wordcount-v2.jar`, and choose in the Web UI.
+  Yes. Rename them on copy, e.g. `flink-tst-modules-v2.jar`, and choose in the Web UI.
 
 - Why not include Flink libraries inside my jar?  
   The container already provides them. Bundling risks version conflicts and larger jars.
@@ -1123,8 +1123,8 @@ docker compose up -d
 2) Verify Kafka, Redis, Neo4j quickly with the tests in section 3.
 3) Build your Flink job jar and copy it to ./jars:
 ```bash
-mvn -q -f flink-wordcount/pom.xml clean package -DskipTests
-cp flink-wordcount/target/flink-wordcount-assembly.jar jars/
+mvn -q -f flink-tst-modules/pom.xml clean package -DskipTests
+cp flink-tst-modules/target/flink-tst-modules-assembly.jar jars/
 ```
 4) Submit the job (Web UI or CLI), and in your job use:
 - Kafka bootstrap servers: kafka:9092
